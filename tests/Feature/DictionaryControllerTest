@@ -1,0 +1,80 @@
+<?php
+
+namespace Tests\Feature;
+
+use Tests\TestCase;
+use App\Models\User;
+use App\Models\SearchHistory;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Auth;
+
+class DictionaryControllerTest extends TestCase
+{
+    use RefreshDatabase;
+
+    private $user;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        // Create a test user and authenticate
+        $this->user = User::factory()->create();
+        $this->actingAs($this->user);
+    }
+
+    /** @test */
+    public function it_can_retrieve_search_history()
+    {
+        // Arrange: Create some search history entries for the user
+        SearchHistory::factory()->create(['user_id' => $this->user->id, 'word' => 'example']);
+        SearchHistory::factory()->create(['user_id' => $this->user->id, 'word' => 'test']);
+        
+        // Act: Call the index method to retrieve search history
+        $response = $this->get(route('dictionary.index'));
+
+        // Assert: Check if the response is successful and contains the search history
+        $response->assertStatus(200);
+        $response->assertViewHas('searchHistories');
+        $this->assertCount(2, $response->viewData('searchHistories'));
+    }
+
+    /** @test */
+    public function it_can_find_a_word_and_save_to_history()
+    {
+        // Act: Call the findWord method with a valid word
+        $response = $this->post(route('dictionary.findWord'), ['word' => 'example']);
+
+        // Assert: Check if the response is successful and the word is saved to search history
+        $response->assertStatus(200);
+        $response->assertViewHas('word', 'example');
+        $this->assertDatabaseHas('search_histories', [
+            'word' => 'example',
+            'user_id' => $this->user->id,
+        ]);
+    }
+
+    /** @test */
+    public function it_can_delete_a_word_from_search_history()
+    {
+        // Arrange: Create a search history entry
+        $searchHistory = SearchHistory::factory()->create(['user_id' => $this->user->id, 'word' => 'example']);
+
+        // Act: Call the delete method for the word
+        $response = $this->delete(route('dictionary.delete', ['word' => 'example']));
+
+        // Assert: Check if the response redirects correctly and the word is deleted from search history
+        $response->assertRedirect(route('dictionary.history'));
+        $this->assertDeleted($searchHistory);
+    }
+
+    /** @test */
+    public function it_returns_error_when_deleting_nonexistent_word()
+    {
+        // Act: Attempt to delete a word that does not exist in search history
+        $response = $this->delete(route('dictionary.delete', ['word' => 'nonexistent']));
+
+        // Assert: Check for error message in the session
+        $response->assertRedirect(route('dictionary.history'));
+        $response->assertSessionHas('error', 'Word not found in your search history.');
+    }
+}
